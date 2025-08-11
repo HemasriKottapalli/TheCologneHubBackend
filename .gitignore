@@ -1,0 +1,9 @@
+# dependencies
+node_modules/
+__pycache__/
+
+# env files
+.env
+
+# misc
+.DS_Store
