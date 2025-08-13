@@ -13,9 +13,8 @@ dbConnect();
 
 const app = express()
 
-// Allow requests from React app (localhost:5173)
 app.use(cors({
-  origin: "https://thecolognehub.netlify.app",
+  origin: process.env.FRONTEND_URL,
   credentials: true,
 }));
 
