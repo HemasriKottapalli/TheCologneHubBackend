@@ -1,68 +1,224 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const { sendVerificationEmail,sendWelcomeEmail } = require("../utils/emailService");
- 
+const { sendVerificationEmail, sendWelcomeEmail } = require("../utils/emailService");
+
+// Updated registration controller with better error handling
 const register = async (req, res) => {
   try {
+    console.log("=== REGISTRATION DEBUG ===");
+    console.log("Request body:", req.body);
+    console.log("Request headers:", req.headers);
+   
     const { username, email, password } = req.body;
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "Email already exists" });
+ 
+    // Validate required fields
+    if (!username || !email || !password) {
+      console.log("Missing required fields:", { 
+        username: !!username, 
+        email: !!email, 
+        password: !!password 
+      });
+      return res.status(400).json({
+        message: "Username, email, and password are required",
+        received: { username: !!username, email: !!email, password: !!password }
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      console.log("Invalid email format:", email);
+      return res.status(400).json({
+        message: "Please provide a valid email address"
+      });
+    }
 
+    // Validate password length
+    if (password.length < 6) {
+      console.log("Password too short:", password.length);
+      return res.status(400).json({
+        message: "Password must be at least 6 characters long"
+      });
+    }
+ 
+    console.log("All validations passed");
+ 
+    // Check if email is already registered (email is unique identifier)
+    console.log("Checking for existing email...");
+    const existingUser = await User.findOne({ email });
+   
+    if (existingUser) {
+      console.log("Existing user found:", {
+        existingEmail: existingUser.email,
+        existingUsername: existingUser.username
+      });
+      return res.status(400).json({
+        message: "Email already exists"
+      });
+    }
+ 
+    console.log("No existing user found, proceeding with registration");
+ 
+    const hashedPassword = await bcrypt.hash(password, 10);
+    console.log("Password hashed successfully");
+ 
     const newUser = new User({
       username,
       email,
       password: hashedPassword,
       role: "user",
+      isEmailVerified: false,
     });
-
+ 
+    console.log("Creating new user object:", {
+      username: newUser.username,
+      email: newUser.email,
+      role: newUser.role,
+      isEmailVerified: newUser.isEmailVerified
+    });
+ 
+    // Generate verification token BEFORE saving
+    const verificationToken = newUser.generateEmailVerificationToken();
+    console.log("Verification token generated:", verificationToken ? "Yes" : "No");
+   
+    // Save user to database
     await newUser.save();
-    res.status(201).json({ message: `User registered with email ${email}` });
+    console.log("User saved to database successfully");
+ 
+    // Send verification email
+    try {
+      console.log("Attempting to send verification email...");
+      console.log("Environment check:", {
+        EMAIL_USER: !!process.env.EMAIL_USER,
+        EMAIL_PASS: !!process.env.EMAIL_PASS,
+        FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000'
+      });
+      
+      const emailResult = await sendVerificationEmail(email, username, verificationToken);
+      console.log("Email result:", emailResult);
+     
+      if (emailResult && emailResult.success) {
+        console.log("Verification email sent successfully");
+       
+        res.status(201).json({
+          message: "Registration successful! Please check your email to verify your account.",
+          emailSent: true,
+          email: email,
+          success: true
+        });
+      } else {
+        throw new Error("Email sending failed");
+      }
+    } catch (emailError) {
+      console.error("Failed to send verification email:", emailError.message);
+      console.error("Email error stack:", emailError.stack);
+     
+      // Still return success for registration, but indicate email issue
+      res.status(201).json({
+        message: "Account created successfully, but there was an issue sending the verification email. Please try resending it.",
+        emailSent: false,
+        email: email,
+        success: true,
+        emailError: emailError.message
+      });
+    }
   } catch (err) {
-    res.status(500).json({ message: "something went wrong" });
+    console.error("=== REGISTRATION ERROR DEBUG ===");
+    console.error("Error name:", err.name);
+    console.error("Error message:", err.message);
+    console.error("Error stack:", err.stack);
+    console.error("Error code:", err.code);
+   
+    // Handle MongoDB validation errors specifically
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      console.error("Validation errors:", errors);
+      return res.status(400).json({
+        message: "Validation error: " + errors.join(', '),
+        success: false,
+        validationErrors: errors
+      });
+    }
+   
+    // Handle MongoDB duplicate key errors
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyValue)[0];
+      console.error("Duplicate key error:", field, err.keyValue);
+      return res.status(400).json({
+        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`,
+        success: false,
+        duplicateField: field
+      });
+    }
+
+    // Handle MongoDB connection errors
+    if (err.name === 'MongoNetworkError' || err.name === 'MongooseServerSelectionError') {
+      console.error("Database connection error");
+      return res.status(500).json({
+        message: "Database connection failed. Please try again later.",
+        success: false
+      });
+    }
+   
+    res.status(500).json({
+      message: "Something went wrong during registration",
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? {
+        name: err.name,
+        message: err.message,
+        stack: err.stack
+      } : undefined
+    });
   }
 };
  
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
+ 
+    // Find user by email (unique identifier)
     const user = await User.findOne({ email });
-
+ 
     if (!user) {
       return res
         .status(404)
-        .json({ message: `No user found with that email` });
+        .json({ message: "No user found with that email" });
     }
-
+ 
     const isMatch = await bcrypt.compare(password, user.password);
-
+ 
     if (!isMatch) {
-      return res.status(400).json({ message: `Invalid credentials` });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
-
+ 
+    // Check if email is verified
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        message: "Please verify your email before logging in",
+        emailVerificationRequired: true,
+        email: user.email
+      });
+    }
+ 
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
-
+ 
     res.status(200).json({
       token,
       role: user.role,
       username: user.username,
       email: user.email,
+      isEmailVerified: user.isEmailVerified
     });
   } catch (err) {
-    res.status(500).json({ message: 'Something went wrong' });
+    console.error("Login error:", err);
+    res.status(500).json({ message: 'Something went wrong during login' });
   }
 };
-
  
 const verifyEmail = async (req, res) => {
   try {
@@ -242,4 +398,3 @@ module.exports = {
   resendVerificationEmail,
   getVerificationStatus
 };
- 
