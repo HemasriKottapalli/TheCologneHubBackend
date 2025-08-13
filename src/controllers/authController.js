@@ -270,6 +270,13 @@ const verifyEmail = async (req, res) => {
     await user.save();
    
     console.log("User email verified successfully");
+
+    // Generate JWT token for auto-login
+    const jwtToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' } // Extended expiry for better UX
+    );
  
     // Send welcome email (optional, doesn't affect the verification process)
     try {
@@ -281,9 +288,13 @@ const verifyEmail = async (req, res) => {
     }
  
     res.status(200).json({
-      message: "Email verified successfully! You can now log in.",
+      message: "Email verified successfully! You are now logged in.",
       verified: true,
       username: user.username,
+      email: user.email,
+      role: user.role,
+      token: jwtToken, // Include JWT token for auto-login
+      isEmailVerified: true,
       success: true
     });
   } catch (err) {
@@ -295,7 +306,6 @@ const verifyEmail = async (req, res) => {
     });
   }
 };
- 
 const resendVerificationEmail = async (req, res) => {
   try {
     console.log("=== RESEND EMAIL DEBUG ===");
