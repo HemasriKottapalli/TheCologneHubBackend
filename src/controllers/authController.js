@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { sendVerificationEmail, sendWelcomeEmail } = require("../utils/emailService");
 
-// Updated registration controller with better error handling
+// Registration controller with better error handling
 const register = async (req, res) => {
   try {
     console.log("=== REGISTRATION DEBUG ===");
@@ -43,7 +43,7 @@ const register = async (req, res) => {
  
     console.log("All validations passed");
  
-    // Check if email is already registered (email is unique identifier)
+    // Check if email is already registered
     console.log("Checking for existing email...");
     const existingUser = await User.findOne({ email });
    
@@ -172,12 +172,13 @@ const register = async (req, res) => {
     });
   }
 };
- 
+
+// Login controller
 const login = async (req, res) => {
   try {
     const { username, password } = req.body;
  
-    // FIXED: Find user by username OR email (more flexible)
+    // Find user by username OR email (more flexible)
     const user = await User.findOne({ 
       $or: [
         { username: username },
@@ -225,13 +226,16 @@ const login = async (req, res) => {
   }
 };
 
-// FIXED: Email verification endpoint - returns JSON for API consumption
+// FIXED: Email verification endpoint - handles both API and browser requests
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
    
     console.log("=== EMAIL VERIFICATION DEBUG ===");
     console.log("Token received:", token);
+    console.log("Request headers:", req.headers);
+    console.log("Request origin:", req.get('origin'));
+    console.log("User agent:", req.get('user-agent'));
  
     if (!token) {
       return res.status(400).json({
@@ -257,18 +261,21 @@ const verifyEmail = async (req, res) => {
      
       if (expiredUser) {
         console.log("Token found but expired");
-        return res.status(400).json({
-          success: false,
-          message: "Verification link has expired. Please request a new one.",
-          expired: true
-        });
+        
+        // FIXED: Handle expired token with proper redirect
+        const frontendUrl = process.env.NODE_ENV === 'production' 
+          ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
+          : (process.env.FRONTEND_URL || 'http://localhost:5174');
+          
+        return res.redirect(`${frontendUrl}/verify-email?status=expired&message=${encodeURIComponent('Verification link has expired. Please request a new one.')}`);
       } else {
         console.log("Token not found");
-        return res.status(400).json({
-          success: false,
-          message: "Invalid or already used verification token.",
-          expired: false
-        });
+        
+        const frontendUrl = process.env.NODE_ENV === 'production' 
+          ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
+          : (process.env.FRONTEND_URL || 'http://localhost:5174');
+          
+        return res.redirect(`${frontendUrl}/verify-email?status=invalid&message=${encodeURIComponent('Invalid or already used verification token.')}`);
       }
     }
  
@@ -296,26 +303,38 @@ const verifyEmail = async (req, res) => {
       // Don't fail the verification if welcome email fails
     }
  
-    // FIXED: Return JSON response instead of HTML
-    res.status(200).json({
-      success: true,
-      message: "Email verified successfully! You are now logged in.",
+    // FIXED: Redirect to frontend with success status and user data
+    const frontendUrl = process.env.NODE_ENV === 'production' 
+      ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
+      : (process.env.FRONTEND_URL || 'http://localhost:5174');
+    
+    // Encode user data for URL transmission
+    const userData = encodeURIComponent(JSON.stringify({
+      token: jwtToken,
+      role: user.role,
       username: user.username,
       email: user.email,
-      role: user.role,
-      token: jwtToken,
       isEmailVerified: true
-    });
+    }));
+    
+    const redirectUrl = `${frontendUrl}/verify-email?status=success&data=${userData}&message=${encodeURIComponent('Email verified successfully! You are now logged in.')}`;
+    
+    console.log("Redirecting to:", redirectUrl);
+    
+    return res.redirect(redirectUrl);
+    
   } catch (err) {
     console.error("Email verification error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Something went wrong during email verification. Please try again.",
-      expired: false
-    });
+    
+    const frontendUrl = process.env.NODE_ENV === 'production' 
+      ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
+      : (process.env.FRONTEND_URL || 'http://localhost:5174');
+    
+    return res.redirect(`${frontendUrl}/verify-email?status=error&message=${encodeURIComponent('Something went wrong during email verification. Please try again.')}`);
   }
 };
 
+// Resend verification email controller
 const resendVerificationEmail = async (req, res) => {
   try {
     console.log("=== RESEND EMAIL DEBUG ===");
@@ -389,8 +408,8 @@ const resendVerificationEmail = async (req, res) => {
     });
   }
 };
- 
-// Helper function to get user verification status (for frontend use)
+
+// Helper function to get user verification status
 const getVerificationStatus = async (req, res) => {
   try {
     const { email } = req.params;
@@ -410,7 +429,7 @@ const getVerificationStatus = async (req, res) => {
     res.status(500).json({ message: 'Something went wrong' });
   }
 };
- 
+
 module.exports = {
   register,
   login,
