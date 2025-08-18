@@ -8,7 +8,6 @@ const register = async (req, res) => {
   try {
     console.log("=== REGISTRATION DEBUG ===");
     console.log("Request body:", req.body);
-    console.log("Request headers:", req.headers);
    
     const { username, email, password } = req.body;
  
@@ -92,7 +91,8 @@ const register = async (req, res) => {
       console.log("Environment check:", {
         EMAIL_USER: !!process.env.EMAIL_USER,
         EMAIL_PASS: !!process.env.EMAIL_PASS,
-        FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000'
+        NODE_ENV: process.env.NODE_ENV,
+        FRONTEND_URL: process.env.FRONTEND_URL || 'Default will be used'
       });
       
       const emailResult = await sendVerificationEmail(email, username, verificationToken);
@@ -175,15 +175,20 @@ const register = async (req, res) => {
  
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { username, password } = req.body;
  
-    // Find user by email (unique identifier)
-    const user = await User.findOne({ email });
+    // FIXED: Find user by username OR email (more flexible)
+    const user = await User.findOne({ 
+      $or: [
+        { username: username },
+        { email: username }
+      ]
+    });
  
     if (!user) {
       return res
         .status(404)
-        .json({ message: "No user found with that email" });
+        .json({ message: "No user found with that username/email" });
     }
  
     const isMatch = await bcrypt.compare(password, user.password);
@@ -204,7 +209,7 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
  
     res.status(200).json({
@@ -220,7 +225,7 @@ const login = async (req, res) => {
   }
 };
 
-// FIXED: Email verification with proper HTML response for browser navigation
+// FIXED: Email verification endpoint - returns JSON for API consumption
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -229,27 +234,11 @@ const verifyEmail = async (req, res) => {
     console.log("Token received:", token);
  
     if (!token) {
-      return res.status(400).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Verification Error</title>
-          <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-            .container { max-width: 500px; margin: 0 auto; }
-            .error { color: #dc2626; }
-            .btn { display: inline-block; padding: 10px 20px; background: #8B4513; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1 class="error">Verification Error</h1>
-            <p>Verification token is required</p>
-            <a href="${process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app'}" class="btn">Go to Home</a>
-          </div>
-        </body>
-        </html>
-      `);
+      return res.status(400).json({
+        success: false,
+        message: "Verification token is required",
+        expired: false
+      });
     }
  
     // Find user with the verification token that hasn't expired
@@ -268,51 +257,18 @@ const verifyEmail = async (req, res) => {
      
       if (expiredUser) {
         console.log("Token found but expired");
-        return res.status(400).send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Verification Expired</title>
-            <style>
-              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-              .container { max-width: 500px; margin: 0 auto; }
-              .error { color: #dc2626; }
-              .btn { display: inline-block; padding: 10px 20px; background: #8B4513; color: white; text-decoration: none; border-radius: 5px; margin: 10px; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1 class="error">Verification Link Expired</h1>
-              <p>This verification link has expired. Please request a new one.</p>
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}?showRegister=true" class="btn">Register Again</a>
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" class="btn">Go to Home</a>
-            </div>
-          </body>
-          </html>
-        `);
+        return res.status(400).json({
+          success: false,
+          message: "Verification link has expired. Please request a new one.",
+          expired: true
+        });
       } else {
         console.log("Token not found");
-        return res.status(400).send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Invalid Token</title>
-            <style>
-              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-              .container { max-width: 500px; margin: 0 auto; }
-              .error { color: #dc2626; }
-              .btn { display: inline-block; padding: 10px 20px; background: #8B4513; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1 class="error">Invalid Verification Token</h1>
-              <p>This verification link is invalid or has already been used.</p>
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" class="btn">Go to Home</a>
-            </div>
-          </body>
-          </html>
-        `);
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or already used verification token.",
+          expired: false
+        });
       }
     }
  
@@ -328,7 +284,7 @@ const verifyEmail = async (req, res) => {
     const jwtToken = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' } // Extended expiry for better UX
+      { expiresIn: '7d' }
     );
  
     // Send welcome email (optional, doesn't affect the verification process)
@@ -340,41 +296,26 @@ const verifyEmail = async (req, res) => {
       // Don't fail the verification if welcome email fails
     }
  
+    // FIXED: Return JSON response instead of HTML
     res.status(200).json({
+      success: true,
       message: "Email verified successfully! You are now logged in.",
-      verified: true,
       username: user.username,
       email: user.email,
       role: user.role,
-      token: jwtToken, // Include JWT token for auto-login
-      isEmailVerified: true,
-      success: true
+      token: jwtToken,
+      isEmailVerified: true
     });
   } catch (err) {
     console.error("Email verification error:", err);
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Verification Error</title>
-        <style>
-          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-          .container { max-width: 500px; margin: 0 auto; }
-          .error { color: #dc2626; }
-          .btn { display: inline-block; padding: 10px 20px; background: #8B4513; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1 class="error">Verification Error</h1>
-          <p>Something went wrong during email verification. Please try again.</p>
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" class="btn">Go to Home</a>
-        </div>
-      </body>
-      </html>
-    `);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong during email verification. Please try again.",
+      expired: false
+    });
   }
 };
+
 const resendVerificationEmail = async (req, res) => {
   try {
     console.log("=== RESEND EMAIL DEBUG ===");

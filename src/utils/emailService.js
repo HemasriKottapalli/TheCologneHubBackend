@@ -10,15 +10,13 @@ const createTransporter = () => {
     throw new Error("EMAIL_USER and EMAIL_PASS environment variables are required");
   }
  
-  // CORRECT METHOD NAME: createTransport (not createTransporter)
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS // This should be your app password, not regular password
+      pass: process.env.EMAIL_PASS
     },
-    // Add these additional settings for better reliability
-    secure: false, // Use STARTTLS
+    secure: false,
     tls: {
       rejectUnauthorized: false
     }
@@ -114,14 +112,22 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
   };
 };
  
-// Send verification email with better error handling
+// Send verification email with FRONTEND URL (not backend API)
 const sendVerificationEmail = async (email, username, token) => {
   try {
     console.log("=== SENDING EMAIL DEBUG ===");
     console.log("To:", email);
     console.log("Username:", username);
     console.log("Token:", token ? "Present" : "Missing");
-    console.log("FRONTEND_URL:", process.env.FRONTEND_URL || 'http://localhost:3000');
+    
+    // FIXED: Determine the correct frontend URL based on environment
+    const isProduction = process.env.NODE_ENV === 'production';
+    const frontendUrl = isProduction 
+      ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
+      : (process.env.FRONTEND_URL || 'http://localhost:5174');
+    
+    console.log("Environment:", process.env.NODE_ENV);
+    console.log("Frontend URL:", frontendUrl);
    
     if (!token) {
       throw new Error("Verification token is missing");
@@ -133,8 +139,8 @@ const sendVerificationEmail = async (email, username, token) => {
     await transporter.verify();
     console.log("SMTP connection verified successfully");
    
-    // FIXED: Use backend API endpoint instead of frontend page
-    const verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-email/${token}`;
+    // FIXED: Use frontend verification page URL instead of backend API
+    const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
     console.log("Verification URL:", verificationUrl);
    
     const emailTemplate = getVerificationEmailTemplate(username, verificationUrl);
@@ -243,7 +249,6 @@ const sendWelcomeEmail = async (email, username) => {
     return { success: true, messageId: result.messageId };
   } catch (error) {
     console.error('Error sending welcome email:', error);
-    // Don't throw error for welcome email failure
     return { success: false, error: error.message };
   }
 };
