@@ -68,7 +68,7 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
             <p>Thank you for joining our fragrance community. To complete your registration and start exploring our collection, please verify your email address by clicking the button below:</p>
            
             <div style="text-align: center;">
-              <a href="${verificationUrl}" class="button">Verify My Email</a>
+              <a href="${verificationUrl}" class="button" target="_blank" rel="noopener">Verify My Email</a>
             </div>
            
             <p>If the button doesn't work, you can also copy and paste this link into your browser:</p>
@@ -78,6 +78,15 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
            
             <div class="warning">
               <strong>Security Note:</strong> This verification link will expire in 24 hours. If you didn't create this account, please ignore this email.
+            </div>
+            
+            <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0;">
+              <strong>What happens after verification:</strong>
+              <ul style="margin: 10px 0 0 20px; padding: 0;">
+                <li>You'll be automatically logged into your account</li>
+                <li>You'll receive a welcome message</li>
+                <li>You can immediately start using The Cologne Hub</li>
+              </ul>
             </div>
           </div>
          
@@ -95,6 +104,8 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
       Thank you for joining our fragrance community. To complete your registration, please verify your email address by visiting this link:
      
       ${verificationUrl}
+     
+      After clicking the link, you'll be automatically logged in and can start using your account immediately.
      
       This link will expire in 24 hours. If you didn't create this account, please ignore this email.
      
@@ -122,7 +133,8 @@ const sendVerificationEmail = async (email, username, token) => {
     await transporter.verify();
     console.log("SMTP connection verified successfully");
    
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}`;
+    // FIXED: Use backend API endpoint instead of frontend page
+    const verificationUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/verify-email/${token}`;
     console.log("Verification URL:", verificationUrl);
    
     const emailTemplate = getVerificationEmailTemplate(username, verificationUrl);
@@ -240,4 +252,3 @@ module.exports = {
   sendVerificationEmail,
   sendWelcomeEmail
 };
- 
