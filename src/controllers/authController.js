@@ -92,6 +92,10 @@ const login = async (req, res) => {
   try {
     const { username, password } = req.body;
     
+    if (!username || !password) {
+      return res.status(400).json({ message: "Username and password are required" });
+    }
+
     const user = await User.findOne({ 
       $or: [
         { username: username },
@@ -104,7 +108,6 @@ const login = async (req, res) => {
     }
     
     const isMatch = await bcrypt.compare(password, user.password);
-    
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -132,6 +135,46 @@ const login = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: 'Something went wrong during login' });
+  }
+};
+
+const loginVerified = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(404).json({ message: "No user found with that email" });
+    }
+    
+    if (!user.isEmailVerified) {
+      return res.status(403).json({
+        message: "Please verify your email before logging in",
+        emailVerificationRequired: true,
+        email: user.email
+      });
+    }
+    
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.status(200).json({
+      token,
+      role: user.role,
+      username: user.username,
+      email: user.email,
+      isEmailVerified: user.isEmailVerified
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Something went wrong during verified login' });
   }
 };
 
@@ -171,7 +214,6 @@ const verifyEmail = async (req, res) => {
       console.error("Failed to send welcome email:", emailError);
     }
 
-    // Store user data in localStorage and trigger login
     const userData = encodeURIComponent(JSON.stringify({
       token: jwtToken,
       role: user.role,
@@ -260,6 +302,7 @@ const getVerificationStatus = async (req, res) => {
 module.exports = {
   register,
   login,
+  loginVerified,
   verifyEmail,
   resendVerificationEmail,
   getVerificationStatus

@@ -1,33 +1,55 @@
-const nodemailer = require("nodemailer");
+const nodemailer = require('nodemailer');
 
-// Create transporter with better error handling
+let transporter = null;
+
+// Create and cache transporter
 const createTransporter = () => {
-  console.log("=== EMAIL TRANSPORTER DEBUG ===");
-  console.log("EMAIL_USER:", process.env.EMAIL_USER ? "Set" : "Not set");
-  console.log("EMAIL_PASS:", process.env.EMAIL_PASS ? "Set" : "Not set");
-
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    throw new Error("EMAIL_USER and EMAIL_PASS environment variables are required");
+  if (transporter) {
+    return transporter;
   }
 
-  // FIXED: Use nodemailer.createTransport (not createTransporter)
-  return nodemailer.createTransport({
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error('EMAIL_USER and EMAIL_PASS environment variables are required');
+  }
+
+  const config = {
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
-    },
-    secure: false,
-    tls: {
-      rejectUnauthorized: false
+    }
+  };
+
+  // Use secure connection for production
+  if (process.env.NODE_ENV === 'production') {
+    config.secure = true;
+    config.port = 465;
+  } else {
+    config.secure = false;
+    config.tls = { rejectUnauthorized: false };
+  }
+
+  transporter = nodemailer.createTransport(config);
+
+  // Verify connection on creation
+  transporter.verify((error) => {
+    if (error) {
+      console.error('SMTP verification failed:', error);
+      throw new Error('Email server connection failed: ' + error.message);
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('SMTP connection verified successfully');
     }
   });
+
+  return transporter;
 };
 
 // Email verification template
 const getVerificationEmailTemplate = (username, verificationUrl) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app';
   return {
-    subject: "Verify Your Email - The Cologne Hub",
+    subject: 'Verify Your Email - The Cologne Hub',
     html: `
       <!DOCTYPE html>
       <html>
@@ -76,7 +98,7 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
             </p>
            
             <div class="warning">
-              <strong>Security Note:</strong> This verification link will expire in 24 hours. If you didn't create this account, please ignore this email.
+              <strong>Security Note:</strong> This verification link will expire in 24 hours. If you didn't create this account, please ignore this email. After verification, you'll be redirected to ${frontendUrl}.
             </div>
             
             <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0;">
@@ -104,7 +126,7 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
      
       ${verificationUrl}
      
-      After clicking the link, you'll be automatically logged in and can start using your account immediately.
+      After clicking the link, you'll be automatically logged in and redirected to ${frontendUrl}.
      
       This link will expire in 24 hours. If you didn't create this account, please ignore this email.
      
@@ -113,53 +135,33 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
   };
 };
 
-// FIXED: Send verification email with proper URL detection
+// Send verification email
 const sendVerificationEmail = async (email, username, token) => {
   try {
-    console.log("=== SENDING EMAIL DEBUG ===");
-    console.log("To:", email);
-    console.log("Username:", username);
-    console.log("Token:", token ? "Present" : "Missing");
-    console.log("NODE_ENV:", process.env.NODE_ENV);
-    console.log("FRONTEND_URL from env:", process.env.FRONTEND_URL);
-    
     if (!token) {
-      throw new Error("Verification token is missing");
+      throw new Error('Verification token is missing');
     }
 
-    // FIXED: Proper environment-based URL determination
-    let backendUrl;
-    
-    if (process.env.NODE_ENV === 'production') {
-      // In production, use the backend URL directly for verification
-      backendUrl = process.env.BACKEND_URL || 'https://thecolognehubbackend.onrender.com';
-    } else {
-      // In development
-      backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-    }
-    
-    // Remove trailing slash if present
-    backendUrl = backendUrl.replace(/\/$/, '');
-    
-    console.log("Backend URL for verification:", backendUrl);
-   
-    const transporter = createTransporter();
-   
-    // Test the transporter connection first
-    try {
-      await transporter.verify();
-      console.log("SMTP connection verified successfully");
-    } catch (verifyError) {
-      console.error("SMTP verification failed:", verifyError);
-      throw new Error("Email server connection failed: " + verifyError.message);
-    }
-   
-    // FIXED: Use backend verification endpoint URL (this will redirect to frontend after verification)
+    const backendUrl = (process.env.NODE_ENV === 'production'
+      ? process.env.BACKEND_URL || 'https://thecolognehubbackend.onrender.com'
+      : process.env.BACKEND_URL || 'http://localhost:7001').replace(/\/$/, '');
+
     const verificationUrl = `${backendUrl}/api/auth/verify-email/${token}`;
-    console.log("Verification URL:", verificationUrl);
-   
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('=== SENDING EMAIL DEBUG ===');
+      console.log('To:', email);
+      console.log('Username:', username);
+      console.log('Token:', token ? 'Present' : 'Missing');
+      console.log('NODE_ENV:', process.env.NODE_ENV);
+      console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+      console.log('BACKEND_URL:', backendUrl);
+      console.log('Verification URL:', verificationUrl);
+    }
+
+    const transporter = createTransporter();
     const emailTemplate = getVerificationEmailTemplate(username, verificationUrl);
-   
+
     const mailOptions = {
       from: `"The Cologne Hub" <${process.env.EMAIL_USER}>`,
       to: email,
@@ -167,42 +169,36 @@ const sendVerificationEmail = async (email, username, token) => {
       html: emailTemplate.html,
       text: emailTemplate.text
     };
-   
-    console.log("Mail options:", {
-      from: mailOptions.from,
-      to: mailOptions.to,
-      subject: mailOptions.subject
-    });
-   
+
     const result = await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully:", result.messageId);
-    console.log("Response:", result.response);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Email sent successfully:', result.messageId);
+      console.log('Response:', result.response);
+    }
+    
     console.log(`Verification email sent to ${email}`);
     return { success: true, messageId: result.messageId };
-    
   } catch (error) {
-    console.error('=== EMAIL ERROR DEBUG ===');
+    console.error('=== EMAIL ERROR ===');
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     console.error('Error code:', error.code);
     console.error('Error command:', error.command);
-    console.error('Error stack:', error.stack);
-   
-    // Provide more specific error messages
+    
     let errorMessage = 'Failed to send verification email';
-   
     if (error.code === 'EAUTH') {
       errorMessage = 'Email authentication failed. Please check your email credentials.';
     } else if (error.code === 'ECONNECTION' || error.code === 'ENOTFOUND') {
       errorMessage = 'Could not connect to email server. Please try again later.';
     } else if (error.code === 'EMESSAGE') {
       errorMessage = 'Email message format error.';
-    } else if (error.message && error.message.includes('Invalid login')) {
+    } else if (error.message?.includes('Invalid login')) {
       errorMessage = 'Invalid email credentials. Please check your app password.';
-    } else if (error.message && error.message.includes('Username and Password not accepted')) {
-      errorMessage = 'Gmail authentication failed. Make sure you are using an App Password, not your regular Gmail password.';
+    } else if (error.message?.includes('Username and Password not accepted')) {
+      errorMessage = 'Gmail authentication failed. Make sure you are using an App Password.';
     }
-   
+
     throw new Error(errorMessage + (process.env.NODE_ENV === 'development' ? ' Details: ' + error.message : ''));
   }
 };
@@ -211,19 +207,11 @@ const sendVerificationEmail = async (email, username, token) => {
 const sendWelcomeEmail = async (email, username) => {
   try {
     const transporter = createTransporter();
-   
-    // Test connection first
-    try {
-      await transporter.verify();
-    } catch (verifyError) {
-      console.error("SMTP verification failed for welcome email:", verifyError);
-      throw new Error("Email server connection failed: " + verifyError.message);
-    }
-   
-    const result = await transporter.sendMail({
+
+    const mailOptions = {
       from: `"The Cologne Hub" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: "Welcome to The Cologne Hub! 🌟",
+      subject: 'Welcome to The Cologne Hub! 🌟',
       html: `
         <!DOCTYPE html>
         <html>
@@ -266,13 +254,18 @@ const sendWelcomeEmail = async (email, username) => {
         </body>
         </html>
       `
-    });
-   
-    console.log("Welcome email sent successfully:", result.messageId);
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Welcome email sent successfully:', result.messageId);
+    }
+    
     return { success: true, messageId: result.messageId };
   } catch (error) {
     console.error('Error sending welcome email:', error);
-    return { success: false, error: error.message };
+    throw new Error('Failed to send welcome email: ' + error.message);
   }
 };
 
