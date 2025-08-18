@@ -3,65 +3,41 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { sendVerificationEmail, sendWelcomeEmail } = require("../utils/emailService");
 
-// Registration controller with better error handling
 const register = async (req, res) => {
   try {
-    console.log("=== REGISTRATION DEBUG ===");
-    console.log("Request body:", req.body);
-   
     const { username, email, password } = req.body;
- 
-    // Validate required fields
+    
     if (!username || !email || !password) {
-      console.log("Missing required fields:", { 
-        username: !!username, 
-        email: !!email, 
-        password: !!password 
-      });
       return res.status(400).json({
         message: "Username, email, and password are required",
-        received: { username: !!username, email: !!email, password: !!password }
+        success: false
       });
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      console.log("Invalid email format:", email);
       return res.status(400).json({
-        message: "Please provide a valid email address"
+        message: "Please provide a valid email address",
+        success: false
       });
     }
 
-    // Validate password length
     if (password.length < 6) {
-      console.log("Password too short:", password.length);
       return res.status(400).json({
-        message: "Password must be at least 6 characters long"
+        message: "Password must be at least 6 characters long",
+        success: false
       });
     }
- 
-    console.log("All validations passed");
- 
-    // Check if email is already registered
-    console.log("Checking for existing email...");
+
     const existingUser = await User.findOne({ email });
-   
     if (existingUser) {
-      console.log("Existing user found:", {
-        existingEmail: existingUser.email,
-        existingUsername: existingUser.username
-      });
       return res.status(400).json({
-        message: "Email already exists"
+        message: "Email already exists",
+        success: false
       });
     }
- 
-    console.log("No existing user found, proceeding with registration");
- 
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    console.log("Password hashed successfully");
- 
     const newUser = new User({
       username,
       email,
@@ -69,136 +45,70 @@ const register = async (req, res) => {
       role: "user",
       isEmailVerified: false,
     });
- 
-    console.log("Creating new user object:", {
-      username: newUser.username,
-      email: newUser.email,
-      role: newUser.role,
-      isEmailVerified: newUser.isEmailVerified
-    });
- 
-    // Generate verification token BEFORE saving
+
     const verificationToken = newUser.generateEmailVerificationToken();
-    console.log("Verification token generated:", verificationToken ? "Yes" : "No");
-   
-    // Save user to database
     await newUser.save();
-    console.log("User saved to database successfully");
- 
-    // Send verification email
+
     try {
-      console.log("Attempting to send verification email...");
-      console.log("Environment check:", {
-        EMAIL_USER: !!process.env.EMAIL_USER,
-        EMAIL_PASS: !!process.env.EMAIL_PASS,
-        NODE_ENV: process.env.NODE_ENV,
-        FRONTEND_URL: process.env.FRONTEND_URL || 'Default will be used'
+      await sendVerificationEmail(email, username, verificationToken);
+      res.status(201).json({
+        message: "Registration successful! Please check your email to verify your account.",
+        emailSent: true,
+        email: email,
+        success: true
       });
-      
-      const emailResult = await sendVerificationEmail(email, username, verificationToken);
-      console.log("Email result:", emailResult);
-     
-      if (emailResult && emailResult.success) {
-        console.log("Verification email sent successfully");
-       
-        res.status(201).json({
-          message: "Registration successful! Please check your email to verify your account.",
-          emailSent: true,
-          email: email,
-          success: true
-        });
-      } else {
-        throw new Error("Email sending failed");
-      }
     } catch (emailError) {
-      console.error("Failed to send verification email:", emailError.message);
-      console.error("Email error stack:", emailError.stack);
-     
-      // Still return success for registration, but indicate email issue
       res.status(201).json({
         message: "Account created successfully, but there was an issue sending the verification email. Please try resending it.",
         emailSent: false,
         email: email,
-        success: true,
-        emailError: emailError.message
+        success: true
       });
     }
   } catch (err) {
-    console.error("=== REGISTRATION ERROR DEBUG ===");
-    console.error("Error name:", err.name);
-    console.error("Error message:", err.message);
-    console.error("Error stack:", err.stack);
-    console.error("Error code:", err.code);
-   
-    // Handle MongoDB validation errors specifically
     if (err.name === 'ValidationError') {
-      const errors = Object.values(err.errors).map(e => e.message);
-      console.error("Validation errors:", errors);
       return res.status(400).json({
-        message: "Validation error: " + errors.join(', '),
-        success: false,
-        validationErrors: errors
-      });
-    }
-   
-    // Handle MongoDB duplicate key errors
-    if (err.code === 11000) {
-      const field = Object.keys(err.keyValue)[0];
-      console.error("Duplicate key error:", field, err.keyValue);
-      return res.status(400).json({
-        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`,
-        success: false,
-        duplicateField: field
-      });
-    }
-
-    // Handle MongoDB connection errors
-    if (err.name === 'MongoNetworkError' || err.name === 'MongooseServerSelectionError') {
-      console.error("Database connection error");
-      return res.status(500).json({
-        message: "Database connection failed. Please try again later.",
+        message: "Validation error: " + Object.values(err.errors).map(e => e.message).join(', '),
         success: false
       });
     }
-   
+    
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyValue)[0];
+      return res.status(400).json({
+        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`,
+        success: false
+      });
+    }
+
     res.status(500).json({
       message: "Something went wrong during registration",
-      success: false,
-      error: process.env.NODE_ENV === 'development' ? {
-        name: err.name,
-        message: err.message,
-        stack: err.stack
-      } : undefined
+      success: false
     });
   }
 };
 
-// Login controller
 const login = async (req, res) => {
   try {
     const { username, password } = req.body;
- 
-    // Find user by username OR email (more flexible)
+    
     const user = await User.findOne({ 
       $or: [
         { username: username },
         { email: username }
       ]
     });
- 
+    
     if (!user) {
-      return res
-        .status(404)
-        .json({ message: "No user found with that username/email" });
+      return res.status(404).json({ message: "No user found with that username/email" });
     }
- 
+    
     const isMatch = await bcrypt.compare(password, user.password);
- 
+    
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
- 
-    // Check if email is verified
+    
     if (!user.isEmailVerified) {
       return res.status(403).json({
         message: "Please verify your email before logging in",
@@ -206,13 +116,13 @@ const login = async (req, res) => {
         email: user.email
       });
     }
- 
+    
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
- 
+    
     res.status(200).json({
       token,
       role: user.role,
@@ -221,211 +131,144 @@ const login = async (req, res) => {
       isEmailVerified: user.isEmailVerified
     });
   } catch (err) {
-    console.error("Login error:", err);
     res.status(500).json({ message: 'Something went wrong during login' });
   }
 };
 
-// FIXED: Email verification endpoint - handles both API and browser requests
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
-   
-    console.log("=== EMAIL VERIFICATION DEBUG ===");
-    console.log("Token received:", token);
-    console.log("Request headers:", req.headers);
-    console.log("Request origin:", req.get('origin'));
-    console.log("User agent:", req.get('user-agent'));
- 
+    
     if (!token) {
       return res.status(400).json({
         success: false,
-        message: "Verification token is required",
-        expired: false
+        status: 'error',
+        message: "Verification token is required"
       });
     }
- 
-    // Find user with the verification token that hasn't expired
+
     const user = await User.findOne({
       emailVerificationToken: token,
       emailVerificationExpires: { $gt: Date.now() }
     });
- 
-    console.log("User found:", user ? "Yes" : "No");
-   
+    
     if (!user) {
-      // Check if token exists but is expired
-      const expiredUser = await User.findOne({
-        emailVerificationToken: token
-      });
-     
+      const expiredUser = await User.findOne({ emailVerificationToken: token });
       if (expiredUser) {
-        console.log("Token found but expired");
-        
-        // FIXED: Handle expired token with proper redirect
-        const frontendUrl = process.env.NODE_ENV === 'production' 
-          ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
-          : (process.env.FRONTEND_URL || 'http://localhost:5174');
-          
-        return res.redirect(`${frontendUrl}/verify-email?status=expired&message=${encodeURIComponent('Verification link has expired. Please request a new one.')}`);
-      } else {
-        console.log("Token not found");
-        
-        const frontendUrl = process.env.NODE_ENV === 'production' 
-          ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
-          : (process.env.FRONTEND_URL || 'http://localhost:5174');
-          
-        return res.redirect(`${frontendUrl}/verify-email?status=invalid&message=${encodeURIComponent('Invalid or already used verification token.')}`);
+        return res.status(400).json({
+          success: false,
+          status: 'expired',
+          message: "Verification link has expired. Please request a new one."
+        });
       }
+      return res.status(400).json({
+        success: false,
+        status: 'invalid',
+        message: "Invalid or already used verification token"
+      });
     }
- 
-    console.log("Verifying user:", user.username);
- 
-    // Verify the user's email
+
     user.verifyEmail();
     await user.save();
-   
-    console.log("User email verified successfully");
 
-    // Generate JWT token for auto-login
     const jwtToken = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
- 
-    // Send welcome email (optional, doesn't affect the verification process)
+
     try {
-      const welcomeResult = await sendWelcomeEmail(user.email, user.username);
-      console.log("Welcome email result:", welcomeResult);
+      await sendWelcomeEmail(user.email, user.username);
     } catch (emailError) {
       console.error("Failed to send welcome email:", emailError);
-      // Don't fail the verification if welcome email fails
     }
- 
-    // FIXED: Redirect to frontend with success status and user data
-    const frontendUrl = process.env.NODE_ENV === 'production' 
-      ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
-      : (process.env.FRONTEND_URL || 'http://localhost:5174');
-    
-    // Encode user data for URL transmission
-    const userData = encodeURIComponent(JSON.stringify({
+
+    return res.status(200).json({
+      success: true,
+      status: 'success',
+      message: "Email verified successfully! You are now logged in.",
       token: jwtToken,
       role: user.role,
       username: user.username,
       email: user.email,
       isEmailVerified: true
-    }));
-    
-    const redirectUrl = `${frontendUrl}/verify-email?status=success&data=${userData}&message=${encodeURIComponent('Email verified successfully! You are now logged in.')}`;
-    
-    console.log("Redirecting to:", redirectUrl);
-    
-    return res.redirect(redirectUrl);
-    
+    });
   } catch (err) {
-    console.error("Email verification error:", err);
-    
-    const frontendUrl = process.env.NODE_ENV === 'production' 
-      ? (process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app')
-      : (process.env.FRONTEND_URL || 'http://localhost:5174');
-    
-    return res.redirect(`${frontendUrl}/verify-email?status=error&message=${encodeURIComponent('Something went wrong during email verification. Please try again.')}`);
+    return res.status(500).json({
+      success: false,
+      status: 'error',
+      message: "Something went wrong during email verification"
+    });
   }
 };
 
-// Resend verification email controller
 const resendVerificationEmail = async (req, res) => {
   try {
-    console.log("=== RESEND EMAIL DEBUG ===");
-    console.log("Request body:", req.body);
-   
     const { email } = req.body;
- 
+    
     if (!email) {
       return res.status(400).json({
         message: "Email is required",
         success: false
       });
     }
- 
+    
     const user = await User.findOne({ email });
- 
+    
     if (!user) {
       return res.status(404).json({
         message: "No user found with that email address",
         success: false
       });
     }
- 
+    
     if (user.isEmailVerified) {
       return res.status(400).json({
         message: "Email is already verified",
         success: false
       });
     }
- 
-    console.log("User found, generating new token...");
- 
-    // Generate new verification token (overwrites the old one)
+    
     const verificationToken = user.generateEmailVerificationToken();
     await user.save();
-   
-    console.log("New token generated and saved");
- 
-    // Send verification email
+    
     try {
-      console.log("Attempting to resend verification email...");
-      const emailResult = await sendVerificationEmail(email, user.username, verificationToken);
-      console.log("Email result:", emailResult);
-     
-      if (emailResult && emailResult.success) {
-        console.log("Verification email resent successfully");
-       
-        res.status(200).json({
-          message: "Verification email sent successfully! Please check your inbox.",
-          emailSent: true,
-          success: true
-        });
-      } else {
-        throw new Error("Email sending failed");
-      }
+      await sendVerificationEmail(email, user.username, verificationToken);
+      res.status(200).json({
+        message: "Verification email sent successfully! Please check your inbox.",
+        emailSent: true,
+        success: true
+      });
     } catch (emailError) {
-      console.error("Failed to resend verification email:", emailError);
       res.status(500).json({
         message: "Failed to send verification email: " + emailError.message,
         emailSent: false,
-        success: false,
-        error: emailError.message
+        success: false
       });
     }
   } catch (err) {
-    console.error("Resend verification error:", err);
     res.status(500).json({
       message: 'Something went wrong while resending verification email',
-      success: false,
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      success: false
     });
   }
 };
 
-// Helper function to get user verification status
 const getVerificationStatus = async (req, res) => {
   try {
     const { email } = req.params;
-   
+    
     const user = await User.findOne({ email }).select('isEmailVerified username');
-   
+    
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
- 
+    
     res.status(200).json({
       isEmailVerified: user.isEmailVerified,
       username: user.username
     });
   } catch (err) {
-    console.error("Verification status error:", err);
     res.status(500).json({ message: 'Something went wrong' });
   }
 };
