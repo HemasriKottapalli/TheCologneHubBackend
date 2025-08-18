@@ -339,161 +339,17 @@ const verifyEmail = async (req, res) => {
       console.error("Failed to send welcome email:", emailError);
       // Don't fail the verification if welcome email fails
     }
-
-    // FIXED: Return HTML page that handles the verification and redirects
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    
-    res.status(200).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Email Verified Successfully</title>
-        <meta charset="utf-8">
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding: 50px; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-          .container { 
-            max-width: 600px; 
-            margin: 0 auto; 
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-          }
-          .success { color: #10b981; font-size: 60px; margin-bottom: 20px; }
-          .checkmark {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            background: #10b981;
-            margin: 0 auto 20px;
-            position: relative;
-            animation: checkmark 0.6s ease-in-out;
-          }
-          .checkmark::after {
-            content: '✓';
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 40px;
-            font-weight: bold;
-          }
-          @keyframes checkmark {
-            0% { transform: scale(0); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
-          }
-          .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-          }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-          h1 { margin-bottom: 20px; font-size: 2.5rem; }
-          p { font-size: 1.2rem; margin-bottom: 15px; }
-          .countdown { 
-            font-size: 1.5rem; 
-            font-weight: bold; 
-            color: #fbbf24;
-            margin: 20px 0;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="checkmark"></div>
-          <h1>Email Verified Successfully!</h1>
-          <p>Welcome to The Cologne Hub, <strong>${user.username}</strong>!</p>
-          <p>You are now logged in and have full access to your account.</p>
-          <div class="loading"></div>
-          <p class="countdown">Redirecting in <span id="countdown">3</span> seconds...</p>
-        </div>
-
-        <script>
-          // Store login data
-          const userData = {
-            token: '${jwtToken}',
-            role: '${user.role}',
-            username: '${user.username}',
-            email: '${user.email}',
-            isEmailVerified: true
-          };
-
-          // Function to handle the login process
-          function handleAutoLogin() {
-            try {
-              // Store in localStorage
-              localStorage.setItem('token', userData.token);
-              localStorage.setItem('role', userData.role);
-              localStorage.setItem('username', userData.username);
-              localStorage.setItem('email', userData.email);
-              localStorage.setItem('isEmailVerified', 'true');
-              
-              // Trigger events for any listening components
-              if (window.opener) {
-                // If opened in popup/new tab, notify parent window
-                window.opener.postMessage({
-                  type: 'EMAIL_VERIFIED',
-                  data: userData
-                }, '${frontendUrl}');
-              }
-              
-              // Set flag for verification success
-              localStorage.setItem('justVerified', 'true');
-              
-              console.log('Email verification completed, user logged in');
-            } catch (error) {
-              console.error('Error storing login data:', error);
-            }
-          }
-
-          // Auto-login immediately
-          handleAutoLogin();
-
-          // Countdown and redirect
-          let countdown = 3;
-          const countdownElement = document.getElementById('countdown');
-          
-          const timer = setInterval(() => {
-            countdown--;
-            countdownElement.textContent = countdown;
-            
-            if (countdown <= 0) {
-              clearInterval(timer);
-              
-              // Redirect to home page with verification flag
-              window.location.href = '${frontendUrl}/?verified=true';
-            }
-          }, 1000);
-
-          // Allow immediate redirect on click
-          document.body.addEventListener('click', () => {
-            clearInterval(timer);
-            window.location.href = '${frontendUrl}/?verified=true';
-          });
-        </script>
-      </body>
-      </html>
-    `);
+ 
+    res.status(200).json({
+      message: "Email verified successfully! You are now logged in.",
+      verified: true,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      token: jwtToken, // Include JWT token for auto-login
+      isEmailVerified: true,
+      success: true
+    });
   } catch (err) {
     console.error("Email verification error:", err);
     res.status(500).send(`
@@ -519,7 +375,6 @@ const verifyEmail = async (req, res) => {
     `);
   }
 };
-
 const resendVerificationEmail = async (req, res) => {
   try {
     console.log("=== RESEND EMAIL DEBUG ===");
