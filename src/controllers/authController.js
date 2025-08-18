@@ -245,7 +245,7 @@ const verifyEmail = async (req, res) => {
           <div class="container">
             <h1 class="error">Verification Error</h1>
             <p>Verification token is required</p>
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" class="btn">Go to Home</a>
+            <a href="${process.env.FRONTEND_URL || 'https://thecolognehub.netlify.app'}" class="btn">Go to Home</a>
           </div>
         </body>
         </html>
