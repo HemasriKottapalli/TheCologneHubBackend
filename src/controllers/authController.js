@@ -140,11 +140,7 @@ const verifyEmail = async (req, res) => {
     const { token } = req.params;
     
     if (!token) {
-      return res.status(400).json({
-        success: false,
-        status: 'error',
-        message: "Verification token is required"
-      });
+      return res.redirect(`${process.env.FRONTEND_URL}/?status=error&message=${encodeURIComponent("Verification token is required")}`);
     }
 
     const user = await User.findOne({
@@ -155,17 +151,9 @@ const verifyEmail = async (req, res) => {
     if (!user) {
       const expiredUser = await User.findOne({ emailVerificationToken: token });
       if (expiredUser) {
-        return res.status(400).json({
-          success: false,
-          status: 'expired',
-          message: "Verification link has expired. Please request a new one."
-        });
+        return res.redirect(`${process.env.FRONTEND_URL}/?status=expired&message=${encodeURIComponent("Verification link has expired. Please request a new one.")}`);
       }
-      return res.status(400).json({
-        success: false,
-        status: 'invalid',
-        message: "Invalid or already used verification token"
-      });
+      return res.redirect(`${process.env.FRONTEND_URL}/?status=invalid&message=${encodeURIComponent("Invalid or already used verification token")}`);
     }
 
     user.verifyEmail();
@@ -183,22 +171,18 @@ const verifyEmail = async (req, res) => {
       console.error("Failed to send welcome email:", emailError);
     }
 
-    return res.status(200).json({
-      success: true,
-      status: 'success',
-      message: "Email verified successfully! You are now logged in.",
+    // Store user data in localStorage and trigger login
+    const userData = encodeURIComponent(JSON.stringify({
       token: jwtToken,
       role: user.role,
       username: user.username,
       email: user.email,
       isEmailVerified: true
-    });
+    }));
+
+    return res.redirect(`${process.env.FRONTEND_URL}/?status=success&data=${userData}&message=${encodeURIComponent("Email verified successfully! You are now logged in.")}`);
   } catch (err) {
-    return res.status(500).json({
-      success: false,
-      status: 'error',
-      message: "Something went wrong during email verification"
-    });
+    return res.redirect(`${process.env.FRONTEND_URL}/?status=error&message=${encodeURIComponent("Something went wrong during email verification")}`);
   }
 };
 
