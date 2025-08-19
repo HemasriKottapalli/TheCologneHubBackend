@@ -98,7 +98,7 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
             </p>
            
             <div class="warning">
-              <strong>Security Note:</strong> This verification link will expire in 24 hours. If you didn't create this account, please ignore this email. After verification, you'll be redirected to ${frontendUrl}.
+              <strong>Security Note:</strong> This verification link will expire in 24 hours. If you didn't create this account, please ignore this email. After verification, you'll be automatically logged in to your account.
             </div>
             
             <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0;">
@@ -126,10 +126,84 @@ const getVerificationEmailTemplate = (username, verificationUrl) => {
      
       ${verificationUrl}
      
-      After clicking the link, you'll be automatically logged in and redirected to ${frontendUrl}.
+      After clicking the link, you'll be automatically logged in to your account.
      
       This link will expire in 24 hours. If you didn't create this account, please ignore this email.
      
+      © 2025 The Cologne Hub
+    `
+  };
+};
+
+// Success email template for verification
+const getVerificationSuccessTemplate = (username) => {
+  return {
+    subject: 'Email Verification Successful - The Cologne Hub',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Email Verification Success</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .logo { font-size: 28px; font-weight: bold; color: #8B4513; margin-bottom: 10px; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 10px; margin: 20px 0; }
+          .success { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="logo">The Cologne Hub</div>
+            <p>Your fragrance journey begins</p>
+          </div>
+         
+          <div class="content">
+            <div class="success">
+              <h2>🎉 Email Verified Successfully!</h2>
+            </div>
+            <p>Hi ${username},</p>
+            <p>Congratulations! Your email has been successfully verified. You are now logged in to The Cologne Hub in your original browser tab.</p>
+            <p>You can now:</p>
+            <ul style="margin: 10px 0 0 20px; padding: 0;">
+              <li>Browse our extensive fragrance collection</li>
+              <li>Save fragrances to your wishlist</li>
+              <li>Place orders and track deliveries</li>
+              <li>Receive exclusive offers and updates</li>
+            </ul>
+            <p>You can close this window and return to your original tab to continue your fragrance journey.</p>
+            <p>Best regards,<br>The Cologne Hub Team</p>
+          </div>
+         
+          <div class="footer">
+            <p>© 2025 The Cologne Hub. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+    text: `
+      Email Verification Successful!
+      
+      Hi ${username},
+      
+      Congratulations! Your email has been successfully verified. You are now logged in to The Cologne Hub in your original browser tab.
+      
+      You can now:
+      - Browse our extensive fragrance collection
+      - Save fragrances to your wishlist
+      - Place orders and track deliveries
+      - Receive exclusive offers and updates
+      
+      You can close this window and return to your original tab to continue your fragrance journey.
+      
+      Best regards,
+      The Cologne Hub Team
+      
       © 2025 The Cologne Hub
     `
   };
@@ -207,53 +281,14 @@ const sendVerificationEmail = async (email, username, token) => {
 const sendWelcomeEmail = async (email, username) => {
   try {
     const transporter = createTransporter();
+    const emailTemplate = getVerificationSuccessTemplate(username);
 
     const mailOptions = {
       from: `"The Cologne Hub" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: 'Welcome to The Cologne Hub! 🌟',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .logo { font-size: 28px; font-weight: bold; color: #8B4513; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 10px; }
-            .success { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <div class="logo">The Cologne Hub</div>
-            </div>
-           
-            <div class="content">
-              <div class="success">
-                <h2>🎉 Email Verified Successfully!</h2>
-              </div>
-             
-              <p>Hi ${username},</p>
-              <p>Congratulations! Your email has been successfully verified. You now have full access to The Cologne Hub and can:</p>
-             
-              <ul>
-                <li>Browse our extensive fragrance collection</li>
-                <li>Save fragrances to your wishlist</li>
-                <li>Place orders and track deliveries</li>
-                <li>Receive exclusive offers and updates</li>
-              </ul>
-             
-              <p>Thank you for joining our fragrance community. Happy exploring!</p>
-             
-              <p>Best regards,<br>The Cologne Hub Team</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
     };
 
     const result = await transporter.sendMail(mailOptions);
