@@ -178,7 +178,7 @@ const loginVerified = async (req, res) => {
   }
 };
 
-// NEW: Updated verifyEmail function that shows success page and broadcasts to other tabs
+// NEW: Simple success page that just updates DB and shows success message
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -260,16 +260,11 @@ const verifyEmail = async (req, res) => {
       `);
     }
 
-    // Verify the user
+    // Verify the user and update DB
     user.verifyEmail();
     await user.save();
 
-    // Generate JWT token
-    const jwtToken = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    console.log(`Email verified for user: ${user.email}`);
 
     // Send welcome email
     try {
@@ -278,18 +273,19 @@ const verifyEmail = async (req, res) => {
       console.error("Failed to send welcome email:", emailError);
     }
 
-    // Return success page with cross-tab communication
+    // Return simple success page (frontend polling will handle the login)
     return res.status(200).send(`
       <!DOCTYPE html>
       <html>
       <head>
         <title>Email Verified Successfully</title>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
           body { 
             font-family: 'Arial', sans-serif; 
             text-align: center; 
-            padding: 30px; 
+            padding: 20px; 
             background: linear-gradient(135deg, #8B4513 0%, #A0522D 100%);
             margin: 0;
             min-height: 100vh;
@@ -307,11 +303,6 @@ const verifyEmail = async (req, res) => {
             position: relative;
           }
           .success { color: #27ae60; }
-          .icon { 
-            font-size: 64px; 
-            margin-bottom: 20px; 
-            animation: bounce 2s infinite;
-          }
           .logo {
             font-size: 28px;
             font-weight: bold;
@@ -328,11 +319,6 @@ const verifyEmail = async (req, res) => {
             font-size: 14px;
             color: #7f8c8d;
             margin-top: 30px;
-          }
-          @keyframes bounce {
-            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-10px); }
-            60% { transform: translateY(-5px); }
           }
           .checkmark {
             width: 80px;
@@ -371,6 +357,13 @@ const verifyEmail = async (req, res) => {
           @keyframes fill {
             100% { box-shadow: inset 0px 0px 0px 30px #27ae60; }
           }
+          @media (max-width: 600px) {
+            .container { 
+              margin: 10px; 
+              padding: 30px 20px; 
+            }
+            .message { font-size: 16px; }
+          }
         </style>
       </head>
       <body>
@@ -385,62 +378,21 @@ const verifyEmail = async (req, res) => {
           <h2 class="success">Email Verified Successfully!</h2>
           <div class="message">
             Welcome to The Cologne Hub, <strong>${user.username}</strong>!<br>
-            Your email has been verified and you are now logged in.
+            Your email has been verified successfully.
           </div>
           <div class="submessage">
-            You can now close this tab and continue using The Cologne Hub.
+            You can now close this tab and return to The Cologne Hub.<br>
+            You will be automatically logged in on your original device.
           </div>
         </div>
 
         <script>
-          // Broadcast verification success to all other tabs/windows
-          const userData = {
-            token: "${jwtToken}",
-            role: "${user.role}",
-            username: "${user.username}",
-            email: "${user.email}",
-            isEmailVerified: true
-          };
-
-          // Use BroadcastChannel for same-origin communication
-          if (typeof BroadcastChannel !== 'undefined') {
-            const channel = new BroadcastChannel('email_verification');
-            channel.postMessage({
-              type: 'EMAIL_VERIFIED',
-              data: userData
-            });
-            
-            // Close the channel after a brief delay
-            setTimeout(() => {
-              channel.close();
-            }, 1000);
-          }
-
-          // Fallback: Use localStorage events for older browsers
-          localStorage.setItem('emailVerificationData', JSON.stringify({
-            timestamp: Date.now(),
-            data: userData
-          }));
-          
-          // Clean up after 5 seconds
-          setTimeout(() => {
-            localStorage.removeItem('emailVerificationData');
-          }, 5000);
-
-          // Also try postMessage to parent window if opened in popup
-          if (window.opener) {
-            window.opener.postMessage({
-              type: 'EMAIL_VERIFIED',
-              data: userData
-            }, '*');
-          }
-
-          // Auto-close after 3 seconds if opened in popup
+          // Auto-close after 5 seconds if opened in popup
           setTimeout(() => {
             if (window.opener) {
               window.close();
             }
-          }, 3000);
+          }, 5000);
         </script>
       </body>
       </html>
@@ -523,10 +475,15 @@ const resendVerificationEmail = async (req, res) => {
   }
 };
 
+// NEW: Get verification status for polling
 const getVerificationStatus = async (req, res) => {
   try {
     const { email } = req.params;
     
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
     const user = await User.findOne({ email }).select('isEmailVerified username');
     
     if (!user) {
