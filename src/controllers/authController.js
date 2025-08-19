@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const { sendVerificationEmail, sendWelcomeEmail } = require("../utils/emailService");
+const { sendVerificationEmail } = require("../utils/emailService"); // Removed sendWelcomeEmail import
 
 const register = async (req, res) => {
   try {
@@ -178,7 +178,6 @@ const loginVerified = async (req, res) => {
   }
 };
 
-// NEW: Simple success page that just updates DB and shows success message
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -266,12 +265,12 @@ const verifyEmail = async (req, res) => {
 
     console.log(`Email verified for user: ${user.email}`);
 
-    // Send welcome email
-    try {
-      await sendWelcomeEmail(user.email, user.username);
-    } catch (emailError) {
-      console.error("Failed to send welcome email:", emailError);
-    }
+    // REMOVED: Welcome email sending - this was causing the extra email
+    // try {
+    //   await sendWelcomeEmail(user.email, user.username);
+    // } catch (emailError) {
+    //   console.error("Failed to send welcome email:", emailError);
+    // }
 
     // Return simple success page (frontend polling will handle the login)
     return res.status(200).send(`
@@ -475,7 +474,6 @@ const resendVerificationEmail = async (req, res) => {
   }
 };
 
-// NEW: Get verification status for polling
 const getVerificationStatus = async (req, res) => {
   try {
     const { email } = req.params;
