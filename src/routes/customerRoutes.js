@@ -10,6 +10,8 @@ const {
   clearCart,
   removeFromWishlist
 } = require("../controllers/customerController");
+const orderController = require('../controllers/orderController');
+
 
 // Import payment controller
 const paymentController = require("../controllers/paymentController");
@@ -36,6 +38,11 @@ router.delete("/wishlist/:productId", verifyToken, removeFromWishlist);
 router.post("/create-payment-intent", verifyToken, paymentController.createPaymentIntent);
 router.post("/confirm-payment", verifyToken, paymentController.confirmPayment);
 router.get("/order/:orderId", verifyToken, paymentController.getOrder);
+
+// Order routes
+router.get('/orders', verifyToken, orderController.getOrders);
+router.get('/order/:orderId', verifyToken, orderController.getOrderById);
+router.put('/order/:orderId/cancel', verifyToken, orderController.cancelOrder);
 
 
 module.exports = router;
