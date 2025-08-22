@@ -1,4 +1,4 @@
-// models/Order.js
+// models/Order.js - Updated with confirmedAt field
 const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema({
@@ -47,7 +47,7 @@ const orderSchema = new mongoose.Schema({
     city: { type: String, required: true },
     state: { type: String, required: true },
     zipCode: { type: String, required: true },
-    country: { type: String, required: true, default: 'India' }
+    country: { type: String, required: true, default: 'United States' } // Changed to US
   },
   
   // Payment information
@@ -65,6 +65,7 @@ const orderSchema = new mongoose.Schema({
   
   // Timestamps
   orderDate: { type: Date, default: Date.now },
+  confirmedAt: { type: Date }, // NEW FIELD - tracks when order was confirmed and stock reduced
   estimatedDelivery: { type: Date },
   deliveredAt: { type: Date },
   
@@ -94,5 +95,10 @@ orderSchema.methods.updateStatus = function(newStatus) {
   }
   return this.save();
 };
+
+// Index for better performance
+orderSchema.index({ paymentId: 1 });
+orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ status: 1 });
 
 module.exports = mongoose.model("Order", orderSchema);

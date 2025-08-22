@@ -1,5 +1,6 @@
 const Stripe = require('stripe');
-const Order = require('../models/Order')
+const mongoose = require('mongoose');
+const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const User = require('../models/User');
@@ -37,13 +38,13 @@ const paymentController = {
         });
       }
 
-      // Ensure total is valid (minimum 1 rupee for Stripe India)
-      const calculatedTotal = Math.max(total, 1.0);
+      // Ensure total is valid (minimum 50 cents for Stripe USD)
+      const calculatedTotal = Math.max(total, 0.50);
 
-      // Create payment intent
+      // Create payment intent with USD currency
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(calculatedTotal * 100), // Convert to paise
-        currency: 'inr',
+        amount: Math.round(calculatedTotal * 100), // Convert to cents
+        currency: 'usd',
         automatic_payment_methods: {
           enabled: true,
         },
@@ -54,7 +55,7 @@ const paymentController = {
         }
       });
 
-      // Store order as pending with your existing schema structure
+      // Store order as pending
       const order = new Order({
         userId,
         items: items.map(item => ({
@@ -80,7 +81,7 @@ const paymentController = {
           city: shippingAddress.city || '',
           state: shippingAddress.state || '',
           zipCode: shippingAddress.zipCode || '',
-          country: shippingAddress.country || 'India'
+          country: shippingAddress.country || 'United States'
         }
       });
 
@@ -102,7 +103,7 @@ const paymentController = {
     }
   },
 
-  // Confirm payment and complete order
+  // Confirm payment and complete order - WITH TRANSACTION TO PREVENT DOUBLE PROCESSING
   confirmPayment: async (req, res) => {
     try {
       const { paymentIntentId, orderId } = req.body;
@@ -125,7 +126,7 @@ const paymentController = {
         });
       }
 
-      // Find and update order
+      // Find order
       const order = await Order.findOne({ _id: orderId, userId });
       if (!order) {
         return res.status(404).json({
@@ -134,8 +135,9 @@ const paymentController = {
         });
       }
 
-      // Check if order is already processed to prevent double processing
+      // CRITICAL: Check if order is already processed to prevent double processing
       if (order.status === 'confirmed') {
+        console.log('⚠️ Order already confirmed, skipping stock reduction');
         return res.json({
           success: true,
           message: 'Order already confirmed',
@@ -145,63 +147,110 @@ const paymentController = {
             status: order.status,
             total: order.total,
             items: order.items,
-            estimatedDelivery: order.estimatedDelivery
+            shippingAddress: order.shippingAddress
           }
         });
       }
 
-      // Update product stock using product_id
-      for (const item of order.items) {
-        const product = await Product.findOne({ product_id: item.productId });
-        if (product) {
-          if (product.stock_quantity < item.quantity) {
-            return res.status(400).json({
-              success: false,
-              message: `Insufficient stock for ${product.name}`
-            });
+      // Use MongoDB transaction to ensure atomicity
+      const session = await mongoose.startSession();
+      
+      try {
+        const result = await session.withTransaction(async () => {
+          // Double-check order status within transaction
+          const currentOrder = await Order.findById(orderId).session(session);
+          if (currentOrder.status === 'confirmed') {
+            throw new Error('ORDER_ALREADY_CONFIRMED');
           }
-          
-          await Product.findOneAndUpdate(
-            { product_id: item.productId },
-            { $inc: { stock_quantity: -item.quantity } }
+
+          // Update product stock with stock validation
+          for (const item of order.items) {
+            const product = await Product.findOneAndUpdate(
+              { 
+                product_id: item.productId,
+                stock_quantity: { $gte: item.quantity } // Ensure stock is still available
+              },
+              { $inc: { stock_quantity: -item.quantity } },
+              { session, new: true }
+            );
+            
+            if (!product) {
+              throw new Error(`Insufficient stock for ${item.productName}. Please refresh and try again.`);
+            }
+            
+            console.log(`✅ Stock reduced for ${item.productName}: ${product.stock_quantity + item.quantity} → ${product.stock_quantity}`);
+          }
+
+          // Update order status
+          const updatedOrder = await Order.findByIdAndUpdate(
+            orderId,
+            {
+              status: 'confirmed',
+              paymentStatus: 'paid',
+              paymentId: paymentIntentId,
+              confirmedAt: new Date()
+            },
+            { session, new: true }
           );
+
+          // Clear user's cart
+          await Cart.findOneAndUpdate(
+            { userId },
+            { $set: { items: [] } },
+            { session }
+          );
+
+          return updatedOrder;
+        });
+
+        console.log('✅ Payment confirmed and stock reduced successfully');
+
+        res.json({
+          success: true,
+          order: {
+            id: result._id,
+            orderId: result.orderId,
+            status: result.status,
+            total: result.total,
+            items: result.items,
+            shippingAddress: result.shippingAddress
+          }
+        });
+
+      } catch (transactionError) {
+        // Handle specific transaction errors
+        if (transactionError.message === 'ORDER_ALREADY_CONFIRMED') {
+          // Order was confirmed by another process (like webhook)
+          const confirmedOrder = await Order.findById(orderId);
+          return res.json({
+            success: true,
+            message: 'Order confirmed by another process',
+            order: {
+              id: confirmedOrder._id,
+              orderId: confirmedOrder.orderId,
+              status: confirmedOrder.status,
+              total: confirmedOrder.total,
+              items: confirmedOrder.items,
+              shippingAddress: confirmedOrder.shippingAddress
+            }
+          });
         }
+        
+        throw transactionError;
+      } finally {
+        await session.endSession();
       }
 
-      // Update order status
-      order.status = 'confirmed';
-      order.paymentStatus = 'paid';
-      order.paymentId = paymentIntentId;
-      await order.save();
-
-      // Clear user's cart
-      await Cart.findOneAndUpdate(
-        { userId },
-        { $set: { items: [] } }
-      );
-
-      res.json({
-        success: true,
-        order: {
-          id: order._id,
-          orderId: order.orderId,
-          status: order.status,
-          total: order.total,
-          items: order.items,
-          estimatedDelivery: order.estimatedDelivery
-        }
-      });
-
     } catch (error) {
-      console.error('Payment confirmation error:', error);
+      console.error('❌ Payment confirmation error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to confirm payment'
+        message: error.message || 'Failed to confirm payment'
       });
     }
   },
 
-  // Handle Stripe webhooks
+  // Handle Stripe webhooks - ONLY PROCESS IF API CONFIRMATION DIDN'T RUN
   handleWebhook: async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -217,11 +266,23 @@ const paymentController = {
     switch (event.type) {
       case 'payment_intent.succeeded':
         const paymentIntent = event.data.object;
-        await handleSuccessfulPayment(paymentIntent);
+        console.log('🔔 Webhook: Payment succeeded for', paymentIntent.id);
+        
+        // Only process if order is still pending (API confirmation didn't run)
+        const order = await Order.findOne({ paymentId: paymentIntent.id });
+        if (order && order.status === 'pending') {
+          console.log('📦 Webhook: Processing payment confirmation (API didn\'t run)');
+          await handleSuccessfulPaymentWebhook(paymentIntent);
+        } else if (order) {
+          console.log('✅ Webhook: Order already processed by API, skipping');
+        } else {
+          console.log('⚠️ Webhook: No order found for payment intent');
+        }
         break;
       
       case 'payment_intent.payment_failed':
         const failedPayment = event.data.object;
+        console.log('❌ Webhook: Payment failed for', failedPayment.id);
         await handleFailedPayment(failedPayment);
         break;
 
@@ -302,34 +363,69 @@ async function validateCartItems(items, userId) {
   }
 }
 
-async function handleSuccessfulPayment(paymentIntent) {
+// WEBHOOK-ONLY processing function (when API confirmation doesn't run)
+async function handleSuccessfulPaymentWebhook(paymentIntent) {
+  const session = await mongoose.startSession();
+  
   try {
-    const order = await Order.findOne({ paymentId: paymentIntent.id });
-    if (order && order.status !== 'confirmed') {
-      order.status = 'confirmed';
-      order.paymentStatus = 'paid';
-      await order.save();
+    await session.withTransaction(async () => {
+      const order = await Order.findOne({ paymentId: paymentIntent.id }).session(session);
+      
+      if (order && order.status === 'pending') {
+        console.log('🔄 Webhook: Processing stock reduction');
+        
+        // Update product stock
+        for (const item of order.items) {
+          const product = await Product.findOneAndUpdate(
+            { 
+              product_id: item.productId,
+              stock_quantity: { $gte: item.quantity }
+            },
+            { $inc: { stock_quantity: -item.quantity } },
+            { session, new: true }
+          );
+          
+          if (!product) {
+            throw new Error(`Insufficient stock for ${item.productName}`);
+          }
+          
+          console.log(`✅ Webhook: Stock reduced for ${item.productName}`);
+        }
 
-      // Update product stock using product_id
-      for (const item of order.items) {
-        await Product.findOneAndUpdate(
-          { product_id: item.productId },
-          { $inc: { stock_quantity: -item.quantity } }
+        // Update order
+        order.status = 'confirmed';
+        order.paymentStatus = 'paid';
+        order.confirmedAt = new Date();
+        await order.save({ session });
+
+        // Clear cart
+        await Cart.findOneAndUpdate(
+          { userId: order.userId },
+          { $set: { items: [] } },
+          { session }
         );
+        
+        console.log('✅ Webhook: Order confirmed successfully');
+      } else if (order) {
+        console.log('ℹ️ Webhook: Order already processed, no action needed');
       }
-    }
+    });
   } catch (error) {
-    console.error('Error handling successful payment:', error);
+    console.error('❌ Error in webhook payment handling:', error);
+  } finally {
+    await session.endSession();
   }
 }
 
+// Handle failed payments
 async function handleFailedPayment(paymentIntent) {
   try {
     const order = await Order.findOne({ paymentId: paymentIntent.id });
-    if (order) {
+    if (order && order.status !== 'cancelled') {
       order.status = 'cancelled';
       order.paymentStatus = 'failed';
       await order.save();
+      console.log('❌ Order cancelled due to payment failure');
     }
   } catch (error) {
     console.error('Error handling failed payment:', error);
