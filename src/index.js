@@ -98,12 +98,9 @@ app.use((error, req, res, next) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 7002;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 7001;  // production port
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 CORS enabled for: ${process.env.FRONTEND_URL}`);
-    console.log(`💳 Webhook endpoints:`);
-    console.log(`   - /webhook/stripe (production)`);
-    console.log(`   - /api/customer/payment-webhook (testing)`);
 });
