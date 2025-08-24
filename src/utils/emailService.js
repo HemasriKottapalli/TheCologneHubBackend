@@ -15,7 +15,7 @@ const createTransporter = () => {
   const config = {
     host: 'smtp.gmail.com',
     port: process.env.NODE_ENV === 'production' ? 465 : 587,
-    secure: process.env.NODE_ENV === 'production', // Use SSL in production
+    secure: process.env.NODE_ENV === 'production',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -28,7 +28,6 @@ const createTransporter = () => {
 
   transporter = nodemailer.createTransport(config);
 
-  // Verify connection on creation
   transporter.verify((error) => {
     if (error) {
       console.error('SMTP verification failed:', error);
@@ -194,13 +193,10 @@ const sendVerificationEmail = async (email, username, token) => {
       throw new Error('Verification token is missing');
     }
 
-    // Use BackendForEmail for user-facing links, with fallback
     const baseUrl = process.env.BackendForEmail || 'http://localhost:3000';
     const BackendForEmail = baseUrl.replace(/\/$/, '');
-
-    const verificationUrl = `${BackendForEmail}/api/auth/verify-email/${token}`;
+    const verificationUrl = `${BackendForEmail}/verify-email?token=${token}`;
     
-    // Debug logging
     console.log('=== EMAIL VERIFICATION URL DEBUG ===');
     console.log('NODE_ENV:', process.env.NODE_ENV);
     console.log('BackendForEmail:', process.env.BackendForEmail);
@@ -255,10 +251,8 @@ const sendPasswordResetEmail = async (email, username, token) => {
       throw new Error('Reset token is missing');
     }
 
-    // Use BackendForEmail for user-facing links, with fallback
     const baseUrl = process.env.BackendForEmail || 'http://localhost:3000';
     const BackendForEmail = baseUrl.replace(/\/$/, '');
-
     const resetUrl = `${BackendForEmail}/reset-password?token=${token}`;
     
     console.log('=== PASSWORD RESET EMAIL DEBUG ===');
