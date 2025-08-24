@@ -198,7 +198,7 @@ const sendVerificationEmail = async (email, username, token) => {
     let backendUrl;
     
     if (process.env.NODE_ENV === 'production') {
-      backendUrl = process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'https://thecolognehubbackend.onrender.com';
+      backendUrl = process.env.FRONTEND_URL;
     } else {
       backendUrl = process.env.BACKEND_URL || 'http://localhost:7001';
     }
@@ -267,7 +267,7 @@ const sendPasswordResetEmail = async (email, username, token) => {
 
     let backendUrl;
     if (process.env.NODE_ENV === 'production') {
-      backendUrl = process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || 'https://thecolognehubbackend.onrender.com';
+      backendUrl = process.env.FRONTEND_URL;
     } else {
       backendUrl = process.env.BACKEND_URL || 'http://localhost:3000'; // Use frontend URL for reset link
     }
