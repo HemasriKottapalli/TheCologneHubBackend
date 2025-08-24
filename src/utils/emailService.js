@@ -194,26 +194,16 @@ const sendVerificationEmail = async (email, username, token) => {
       throw new Error('Verification token is missing');
     }
 
-    // Get backend URL from environment with proper fallbacks
-    let backendUrl;
-    
-    if (process.env.NODE_ENV === 'production') {
-      backendUrl = process.env.FRONTEND_URL;
-    } else {
-      backendUrl = process.env.BACKEND_URL || 'http://localhost:7001';
-    }
+    // Use BackendForEmail for user-facing links, with fallback
+    const baseUrl = process.env.BackendForEmail || 'http://localhost:3000';
+    const BackendForEmail = baseUrl.replace(/\/$/, '');
 
-    // Remove trailing slash if present
-    backendUrl = backendUrl.replace(/\/$/, '');
-
-    const verificationUrl = `${backendUrl}/api/auth/verify-email/${token}`;
+    const verificationUrl = `${BackendForEmail}/api/auth/verify-email/${token}`;
     
     // Debug logging
     console.log('=== EMAIL VERIFICATION URL DEBUG ===');
     console.log('NODE_ENV:', process.env.NODE_ENV);
-    console.log('BACKEND_URL:', process.env.BACKEND_URL);
-    console.log('RENDER_EXTERNAL_URL:', process.env.RENDER_EXTERNAL_URL);
-    console.log('Final Backend URL:', backendUrl);
+    console.log('BackendForEmail:', process.env.BackendForEmail);
     console.log('Verification URL:', verificationUrl);
     console.log('=====================================');
 
@@ -265,21 +255,15 @@ const sendPasswordResetEmail = async (email, username, token) => {
       throw new Error('Reset token is missing');
     }
 
-    let backendUrl;
-    if (process.env.NODE_ENV === 'production') {
-      backendUrl = process.env.FRONTEND_URL;
-    } else {
-      backendUrl = process.env.BACKEND_URL || 'http://localhost:3000'; // Use frontend URL for reset link
-    }
+    // Use BackendForEmail for user-facing links, with fallback
+    const baseUrl = process.env.BackendForEmail || 'http://localhost:3000';
+    const BackendForEmail = baseUrl.replace(/\/$/, '');
 
-    backendUrl = backendUrl.replace(/\/$/, '');
-    const resetUrl = `${backendUrl}/reset-password?token=${token}`;
+    const resetUrl = `${BackendForEmail}/reset-password?token=${token}`;
     
     console.log('=== PASSWORD RESET EMAIL DEBUG ===');
     console.log('NODE_ENV:', process.env.NODE_ENV);
-    console.log('BACKEND_URL:', process.env.BACKEND_URL);
-    console.log('RENDER_EXTERNAL_URL:', process.env.RENDER_EXTERNAL_URL);
-    console.log('Final Backend URL:', backendUrl);
+    console.log('BackendForEmail:', process.env.BackendForEmail);
     console.log('Reset URL:', resetUrl);
     console.log('=====================================');
 
