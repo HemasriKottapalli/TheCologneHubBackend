@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
-  // Password Reset Fields (NEW)
+  // Password Reset Fields
   passwordResetToken: {
     type: String,
     default: null
@@ -109,26 +109,19 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
 userSchema.index({ emailVerificationToken: 1 });
-userSchema.index({ passwordResetToken: 1 }); // NEW INDEX
+userSchema.index({ passwordResetToken: 1 });
 
 // Virtual for account lock status
 userSchema.virtual('isLocked').get(function() {
   return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-// EXISTING EMAIL VERIFICATION METHODS
+// Email Verification Methods
 userSchema.methods.generateEmailVerificationToken = function() {
   const verificationToken = crypto.randomBytes(32).toString('hex');
-  
-  this.emailVerificationToken = crypto
-    .createHash('sha256')
-    .update(verificationToken)
-    .digest('hex');
-    
-  // Token expires in 24 hours
-  this.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
-  
-  return verificationToken; // Return unhashed token for email
+  this.emailVerificationToken = verificationToken; // Store raw token
+  this.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+  return verificationToken; // Return raw token for email
 };
 
 userSchema.methods.verifyEmail = function() {
@@ -137,19 +130,12 @@ userSchema.methods.verifyEmail = function() {
   this.emailVerificationExpires = null;
 };
 
-// NEW PASSWORD RESET METHODS
+// Password Reset Methods
 userSchema.methods.generatePasswordResetToken = function() {
   const resetToken = crypto.randomBytes(32).toString('hex');
-  
-  this.passwordResetToken = crypto
-    .createHash('sha256')
-    .update(resetToken)
-    .digest('hex');
-    
-  // Token expires in 1 hour (shorter for security)
-  this.passwordResetExpires = Date.now() + 60 * 60 * 1000;
-  
-  return resetToken; // Return unhashed token for email
+  this.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  this.passwordResetExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+  return resetToken; // Return raw token for email
 };
 
 userSchema.methods.clearPasswordReset = function() {
@@ -159,7 +145,6 @@ userSchema.methods.clearPasswordReset = function() {
 
 // Account Security Methods
 userSchema.methods.incrementLoginAttempts = function() {
-  // If we have a previous lock that has expired, restart at 1
   if (this.lockUntil && this.lockUntil < Date.now()) {
     return this.updateOne({
       $unset: { lockUntil: 1 },
@@ -168,8 +153,6 @@ userSchema.methods.incrementLoginAttempts = function() {
   }
   
   const updates = { $inc: { loginAttempts: 1 } };
-  
-  // Lock account after 5 failed attempts for 2 hours
   if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
     updates.$set = { lockUntil: Date.now() + 2 * 60 * 60 * 1000 };
   }
@@ -186,19 +169,16 @@ userSchema.methods.resetLoginAttempts = function() {
 // Static method to find user by reset token
 userSchema.statics.findByPasswordResetToken = function(token) {
   const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-  
   return this.findOne({
     passwordResetToken: hashedToken,
     passwordResetExpires: { $gt: Date.now() }
   });
 };
 
-// Static method to find user by verification token  
+// Static method to find user by verification token
 userSchema.statics.findByVerificationToken = function(token) {
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-  
   return this.findOne({
-    emailVerificationToken: hashedToken,
+    emailVerificationToken: token, // Use raw token
     emailVerificationExpires: { $gt: Date.now() }
   });
 };
@@ -210,10 +190,9 @@ userSchema.methods.updateLastLogin = function() {
   return this.save();
 };
 
-// Clean up expired tokens periodically (you can run this as a cron job)
+// Clean up expired tokens periodically
 userSchema.statics.cleanupExpiredTokens = function() {
   const now = Date.now();
-  
   return this.updateMany(
     {
       $or: [
@@ -235,7 +214,6 @@ userSchema.statics.cleanupExpiredTokens = function() {
 // Pre-save middleware to handle email changes
 userSchema.pre('save', function(next) {
   if (this.isModified('email') && !this.isNew) {
-    // If email is changed, require re-verification
     this.isEmailVerified = false;
     this.emailVerificationToken = null;
     this.emailVerificationExpires = null;
@@ -247,7 +225,6 @@ userSchema.pre('save', function(next) {
 userSchema.set('toJSON', { 
   virtuals: true,
   transform: function(doc, ret) {
-    // Remove sensitive fields from JSON output
     delete ret.password;
     delete ret.emailVerificationToken;
     delete ret.passwordResetToken;
