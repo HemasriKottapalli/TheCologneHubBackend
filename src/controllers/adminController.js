@@ -1,10 +1,6 @@
 const Product = require("../models/Product");
 const Brand = require('../models/Brand');
-
-
-////////////////product management routes //////////////////
-
-// Create Product
+const User = require('../models/User');
 const createProduct = async (req, res) => {
   try {
     const {
@@ -17,38 +13,37 @@ const createProduct = async (req, res) => {
       cost_price,
       retail_price,
       stock_quantity,
-      image_url,
-      description,
-      created_at,
+      description
     } = req.body;
 
-    const existingProduct = await Product.findOne({ product_id });
-    if (existingProduct) {
-      return res.status(400).json({ message: "Product ID already exists" });
+    let base64Image = null;
+    if (req.file && req.file.buffer) {
+      base64Image = req.file.buffer.toString("base64");
     }
 
-    const newProduct = new Product({
+    const product = new Product({
       product_id,
       name,
       brand,
       category,
-      tags,
-      rating,
+      tags: tags ? tags.split(",").map(tag => tag.trim()) : [],
+      rating: parseFloat(rating) || 0,
       cost_price,
       retail_price,
       stock_quantity,
-      image_url,
       description,
-      created_at,
+      image_url: "data:image/png;base64,"+base64Image
     });
 
-    await newProduct.save();
-    res.status(201).json({ message: "Product created", product: newProduct });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to create product", error });
+    await product.save();
+    res.status(201).json({ success: true, product });
+  } catch (err) {
+    console.error("Error in createProduct:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
 
 // Get All Products
 const getAllProducts = async (req, res) => {
@@ -73,14 +68,52 @@ const getProductById = async (req, res) => {
   }
 };
 
-// Update Product
 const updateProduct = async (req, res) => {
   try {
+    let updateData = { ...req.body };
+
+    // Handle image file if uploaded
+    if (req.file && req.file.buffer) {
+      const base64Image = req.file.buffer.toString("base64");
+      updateData.image_url = `data:image/png;base64,${base64Image}`;
+    }
+
+    // Ensure tags are always stored as array
+    if (typeof updateData.tags === "string") {
+      updateData.tags = updateData.tags
+        .split(",")
+        .map(tag => tag.trim())
+        .filter(tag => tag);
+    }
+
     const updatedProduct = await Product.findOneAndUpdate(
       { product_id: req.params.id },
+      { $set: updateData },  // make sure only updated fields are modified
+      { new: true }
+    );
+
+    if (!updatedProduct) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    res.status(200).json({ message: "Product updated", product: updatedProduct });
+  } catch (error) {
+    console.error("Error updating product:", error);
+    res.status(500).json({ message: "Failed to update product", error });
+  }
+};
+
+
+const updateSingleProductQty = async (req, res) => {
+  try {
+    console.log(req.body)
+    const updatedProduct = await Product.findOneAndUpdate(
+      { product_id: req.body.product_id },
       req.body,
       { new: true }
     );
+
+    console.log(updatedProduct)
 
     if (!updatedProduct) {
       return res.status(404).json({ message: "Product not found" });
@@ -298,6 +331,23 @@ const bulkUploadProducts = async (req, res) => {
 };
 
 
+
+
+
+///////////////////////////////////////get all user//////////////////////////////////
+
+
+// Fetch all users
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({}, '_id username email role isEmailVerified'); // limit fields
+    res.status(200).json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 module.exports = {
   createProduct,
   getAllProducts,
@@ -308,7 +358,7 @@ module.exports = {
   editBrand,
   deleteBrand,
   getAllBrands,
-  bulkUploadProducts
+  bulkUploadProducts,
+  getAllUsers,
+  updateSingleProductQty
 };
-
-

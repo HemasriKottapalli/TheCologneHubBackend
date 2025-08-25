@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const ExcelJS = require('exceljs');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 
@@ -259,6 +260,167 @@ const orderController = {
         message: 'Failed to cancel order'
       });
     }
+  },
+
+  // Get all non-delivered orders
+  getNonDeliveredOrders: async (req, res) => {
+    try {
+      const orders = await Order.find({ status: { $ne: "delivered" } }).sort({ createdAt: -1 });
+      res.json(orders);
+    } catch (err) {
+      res.status(500).json({ error: "Server error while fetching non-delivered orders" });
+    }
+  },
+
+  // Get all delivered orders
+  getDeliveredOrders: async (req, res) => {
+    try {
+      const orders = await Order.find({ status: "delivered" }).sort({ deliveredAt: -1 });
+      res.json(orders);
+    } catch (err) {
+      res.status(500).json({ error: "Server error while fetching delivered orders" });
+    }
+  },
+
+  // Get all cancelled orders
+  getCancelledOrders: async (req, res) => {
+    try {
+      const orders = await Order.find({ status: "cancelled" }).sort({ updatedAt: -1 });
+      res.json(orders);
+    } catch (err) {
+      res.status(500).json({ error: "Server error while fetching cancelled orders" });
+    }
+  },
+
+  // Update order status
+  updateOrderStatus: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { newStatus } = req.body;
+
+      if (!newStatus) {
+        return res.status(400).json({ error: "newStatus field is required" });
+      }
+
+      const order = await Order.findById(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Update status
+      order.status = newStatus;
+
+      if (newStatus === "confirmed" && !order.confirmedAt) {
+        order.confirmedAt = new Date();
+      }
+
+      if (newStatus === "delivered") {
+        order.deliveredAt = new Date();
+      }
+
+      await order.save();
+
+      res.json({ message: "Order status updated successfully", order });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Server error while updating order status" });
+    }
+  },
+
+  // Get orders by status
+  getOrdersByStatus: async (req, res) => {
+    try {
+      const { status } = req.params;
+
+      // if status = all → return all orders
+      let filter = {};
+      if (status !== "all") {
+        filter.status = status;
+      }
+
+      const orders = await Order.find(filter).sort({ createdAt: -1 });
+      res.json(orders);
+    } catch (err) {
+      res.status(500).json({ error: "Server error while fetching orders by status" });
+    }
+  },
+
+  // Get counts of all statuses
+  getOrderCounts: async (req, res) => {
+    try {
+      const statuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
+      const counts = {};
+
+      for (let s of statuses) {
+        counts[s] = await Order.countDocuments({ status: s });
+      }
+
+      res.json(counts);
+    } catch (err) {
+      res.status(500).json({ error: "Server error while fetching order counts" });
+    }
+  },
+
+  // Get orders for a specific user
+  getUserOrders: async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const orders = await Order.find({ userId })
+        .sort({ createdAt: -1 }) // latest first
+        .select('orderId status total items orderDate'); // pick fields
+
+      res.status(200).json(orders);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+  // Export today's orders
+  exportTodayOrders: async (req, res) => {
+    try {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+
+      const orders = await Order.find({ orderDate: { $gte: start, $lte: end } });
+
+      if (!orders.length) {
+        return res.status(404).json({ message: "No orders found for today" });
+      }
+
+      await exportOrdersToExcel(orders, res, "today_orders");
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Error exporting orders" });
+    }
+  },
+
+  // Export orders for a given date
+  exportOrdersByDate: async (req, res) => {
+    try {
+      const date = new Date(req.params.date); // yyyy-mm-dd
+      if (isNaN(date)) {
+        return res.status(400).json({ error: "Invalid date format. Use YYYY-MM-DD" });
+      }
+
+      const start = new Date(date.setHours(0, 0, 0, 0));
+      const end = new Date(date.setHours(23, 59, 59, 999));
+
+      const orders = await Order.find({ orderDate: { $gte: start, $lte: end } });
+
+      if (!orders.length) {
+        return res.status(404).json({ message: "No orders found on this date" });
+      }
+
+      await exportOrdersToExcel(orders, res, `orders_${req.params.date}`);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Error exporting orders" });
+    }
   }
 };
 
@@ -328,6 +490,46 @@ async function getOrderStatusCounts(userId) {
       cancelled: 0
     };
   }
+}
+
+// Helper function for exporting to Excel
+async function exportOrdersToExcel(orders, res, fileName) {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Orders");
+
+  worksheet.columns = [
+    { header: "Order ID", key: "orderId", width: 20 },
+    { header: "User ID", key: "userId", width: 30 },
+    { header: "Status", key: "status", width: 15 },
+    { header: "Payment Status", key: "paymentStatus", width: 15 },
+    { header: "Subtotal", key: "subtotal", width: 15 },
+    { header: "Discount", key: "promoDiscount", width: 15 },
+    { header: "Shipping", key: "shipping", width: 15 },
+    { header: "Tax", key: "tax", width: 15 },
+    { header: "Total", key: "total", width: 15 },
+    { header: "Order Date", key: "orderDate", width: 25 }
+  ];
+
+  orders.forEach(order => {
+    worksheet.addRow({
+      orderId: order.orderId,
+      userId: order.userId,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      subtotal: order.subtotal,
+      promoDiscount: order.promoDiscount,
+      shipping: order.shipping,
+      tax: order.tax,
+      total: order.total,
+      orderDate: order.orderDate.toISOString().slice(0, 19).replace("T", " ")
+    });
+  });
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename=${fileName}.xlsx`);
+
+  await workbook.xlsx.write(res);
+  res.end();
 }
 
 module.exports = orderController;

@@ -44,5 +44,4 @@ router.get('/orders', verifyToken, orderController.getOrders);
 router.get('/order/:orderId', verifyToken, orderController.getOrderById);
 router.put('/order/:orderId/cancel', verifyToken, orderController.cancelOrder);
 
-
 module.exports = router;
