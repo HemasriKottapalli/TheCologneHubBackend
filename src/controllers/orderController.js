@@ -5,7 +5,7 @@ const Product = require('../models/Product');
 
 const orderController = {
   // Get all orders for authenticated user
-  getOrders: async (req, res) => {
+ getOrders: async (req, res) => {
     try {
       const userId = req.user.id;
       const { status, search, page = 1, limit = 20 } = req.query;
@@ -75,6 +75,10 @@ const orderController = {
             })
           );
 
+          // Updated shipping address string
+          const addr = order.shippingAddress;
+          const shippingStr = `${addr.addressLine1}${addr.addressLine2 ? `, ${addr.addressLine2}` : ''}, ${addr.city}, ${addr.state} ${addr.zipCode}`;
+
           return {
             id: order._id,
             orderId: order.orderId,
@@ -82,7 +86,7 @@ const orderController = {
             status: order.status,
             total: order.total,
             items: enhancedItems,
-            shippingAddress: `${order.shippingAddress.address}, ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.zipCode}`,
+            shippingAddress: shippingStr,
             trackingNumber: order.trackingNumber || null,
             estimatedDelivery: order.estimatedDelivery,
             paymentMethod: order.paymentMethod,

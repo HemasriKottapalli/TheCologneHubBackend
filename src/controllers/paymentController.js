@@ -22,7 +22,7 @@ const paymentController = {
         });
       }
 
-      if (!shippingAddress || !shippingAddress.fullName || !shippingAddress.address) {
+      if (!shippingAddress || !shippingAddress.fullName || !shippingAddress.addressLine1) {
         return res.status(400).json({
           success: false,
           message: 'Complete shipping address is required'
@@ -77,7 +77,10 @@ const paymentController = {
         paymentId: paymentIntent.id,
         shippingAddress: {
           fullName: shippingAddress.fullName,
-          address: shippingAddress.address,
+          email: shippingAddress.email,
+          phone: shippingAddress.phone,
+          addressLine1: shippingAddress.addressLine1,
+          addressLine2: shippingAddress.addressLine2 || '',
           city: shippingAddress.city || '',
           state: shippingAddress.state || '',
           zipCode: shippingAddress.zipCode || '',
